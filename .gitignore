@@ -1,0 +1,6 @@
+.env
+/data/orders-db
+/data/products-db
+/data/products_uploads
+/data/mysql-keycloak
+/data/keycloak-realm-data

@@ -1,0 +1,263 @@
+services:
+  spa:
+    build:
+      context: ./spa
+      dockerfile: Dockerfile
+    container_name: ${SPA_CONTAINER_NAME}
+    ports:
+      - "${SPA_PORT}:${SPA_PORT}"
+    environment:
+      VITE_KEYCLOAK_URL: ${KEYCLOAK_SERVER_URL}
+      VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM_NAME}
+      VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+      VITE_KEYCLOAK_PRIVATE_CLIENT_ID: ${KEYCLOAK_PRIVATE_CLIENT_ID}
+      VITE_KEYCLOAK_PRIVATE_CLIENT_SECRET_KEY: ${KEYCLOAK_PRIVATE_CLIENT_SECRET_KEY}
+      VITE_ALLOWED_EXTENSIONS: ${PRODUCT_API_ALLOWED_EXTENSIONS} 
+      VITE_PRODUCTS_API: ${PROTOCOL}://${HOST}:${PRODUCTS_API_PORT}/api
+      VITE_ORDERS_API: ${PROTOCOL}://${HOST}:${ORDERS_API_PORT}/api
+    volumes:
+      - ./data/spa:/app
+    depends_on:
+      - products_api
+      - orders_api
+      - keycloak-w
+    networks:
+      - products
+      - orders
+      - keycloak-and-mysql-network
+      
+  products_api:
+    build:
+      context: ./products_api
+      dockerfile: Dockerfile
+    ports:
+      - "${PRODUCTS_API_PORT}:${PRODUCTS_API_PORT}"
+    restart: always
+    environment:
+      DATABASE_URL: ${PRODUCTS_DATABASE_URL}
+      KAFKA_URL: ${KAFKA_CONTAINER_NAME}:${KAFKA__INTERNAL_PORT}
+      KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC}
+      KAFA_PRODUCTS_TOPIC: ${KAFKA_PRODUCTS_TOPIC}
+      KEYCLOAK_URL: ${KEYCLOAK_SERVER_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM_NAME}
+      UPLOAD_FOLDER: ${PRODUCT_API_UPLOAD_FOLDER}
+      ALLOWED_EXTENSIONS: ${PRODUCT_API_ALLOWED_EXTENSIONS} 
+
+    depends_on:
+      - products_db
+      - kafka
+      - kafka-init
+    volumes:
+      - ./data/products_uploads:${PRODUCT_API_UPLOAD_FOLDER}
+    networks:
+      - keycloak-and-mysql-network
+      - products
+      - kafka
+ 
+  orders_api:
+    build:
+      context: ./orders_api
+      dockerfile: Dockerfile
+    ports:
+      - "${ORDERS_API_PORT}:${ORDERS_API_PORT}"
+    restart: always
+    environment:
+      DATABASE_URL: ${ORDERS_DATABASE_URL}
+      KAFKA_URL: ${KAFKA_CONTAINER_NAME}:${KAFKA__INTERNAL_PORT}
+      KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC}
+      KAFA_PRODUCTS_TOPIC: ${KAFKA_PRODUCTS_TOPIC}
+      KEYCLOAK_URL: ${KEYCLOAK_SERVER_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM_NAME}
+    depends_on:
+      - orders_db
+      - kafka
+      - kafka-init
+    networks:
+      - keycloak-and-mysql-network
+      - orders
+      - kafka
+
+  products_db:
+    container_name: ${PRODUCTS_DB_NAME}
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${PRODUCTS_DB_PORT}:${POSTGRES_PORT}"
+    expose:
+      - ${PRODUCTS_DB_PORT}
+    volumes:
+      - ./data/products-db:/var/lib/postgresql/data
+    networks:
+      - products
+    
+  orders_db:
+    container_name: ${ORDERS_DB_NAME}
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${ORDERS_DB_PORT}:${POSTGRES_PORT}"
+    expose:
+      - ${ORDERS_DB_PORT}
+    volumes:
+      - ./data/orders-db:/var/lib/postgresql/data
+    networks:
+      - orders
+ 
+  mysql-kc:
+    container_name: ${KEYCLOAK_MYSQL_CONTAINER_NAME}
+    image: mysql:8.0
+    ports:
+      - ${KEYCLOAK_MYSQL_PORT}:${KEYCLOAK_MYSQL_PORT}
+    restart: unless-stopped
+    environment:
+      MYSQL_USER: ${KEYCLOAK_MYSQL_USER}
+      MYSQL_PASSWORD: ${KEYCLOAK_MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${KEYCLOAK_MYSQL_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${KEYCLOAK_MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./data/mysql-keycloak:/var/lib/mysql
+      - ./data/keycloak.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - keycloak-and-mysql-network
+
+  keycloak-w:
+    image: quay.io/keycloak/keycloak:26.0.5
+    ports:
+      - "${KEYCLOAK_PORT}:${KEYCLOAK_PORT}"
+    restart: unless-stopped
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_HOST}
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_DB: mysql
+      KC_DB_URL_HOST: ${KEYCLOAK_MYSQL_CONTAINER_NAME}
+      KC_DB_URL_PORT: ${KEYCLOAK_MYSQL_PORT}
+      KC_DB_SCHEMA: ${KEYCLOAK_MYSQL_DATABASE}
+      KC_DB_USERNAME: ${KEYCLOAK_MYSQL_USER}
+      KC_DB_PASSWORD: ${KEYCLOAK_MYSQL_PASSWORD}
+      KC_DB_URL_DATABASE: ${KEYCLOAK_MYSQL_DATABASE}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+    healthcheck:
+        test:
+          [
+            "CMD-SHELL",
+            "exec 3<>/dev/tcp/${KEYCLOAK_HOST}/${KEYCLOAK_PORT} && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: ${KEYCLOAK_HOST}\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'",
+          ]
+        interval: 30s
+        timeout: 5s
+        retries: 20
+
+    depends_on:
+      - mysql-kc
+    volumes:
+      - ./data/keycloak-realm-data:/opt/jboss/keycloak/standalone/data
+      - ./data/custom-keycloak-theme:/opt/keycloak/themes
+    networks:
+      - keycloak-and-mysql-network
+
+  zookeeper:
+      image: confluentinc/cp-zookeeper:7.2.1
+      container_name: ${ZOOKEEPER_CONTAINER_NAME}
+      environment:
+        ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_PORT}
+      networks:
+        - kafka
+
+  kafka:
+    image: confluentinc/cp-kafka:7.2.1
+    container_name: ${KAFKA_CONTAINER_NAME}
+    ports:
+      - "${KAFKA__INTERNAL_PORT}:${KAFKA__INTERNAL_PORT}"
+    expose:
+      - "${KAFKA__EXTERNAL_PORT}"
+    depends_on:
+      - ${ZOOKEEPER_CONTAINER_NAME}
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: ${ZOOKEEPER_CONTAINER_NAME}:${ZOOKEEPER_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: ${KAFKA_LISTENER_SECURITY_PROTOCOL_MAP}
+      KAFKA_ADVERTISED_LISTENERS: ${KAFKA_ADVERTISED_LISTENERS}
+      KAFKA_INTER_BROKER_LISTENER_NAME: ${KAFKA_INTER_BROKER_LISTENER_NAME}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR}
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: ${KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS}
+      KAFKA_JMX_PORT: ${KAFKA_JMX_PORT}
+      KAFKA_JMX_HOSTNAME: ${KAFKA_JMX_HOSTNAME}
+    networks:
+      - kafka
+      - products
+      - orders
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:19092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  kafka-init:
+      image: confluentinc/cp-kafka:7.2.1
+      networks:
+        - kafka
+      depends_on:
+        kafka:
+          condition: service_healthy
+      entrypoint: ["sh", "-c", 
+        "
+          kafka-topics --bootstrap-server ${KAFKA_CONTAINER_NAME}:${KAFKA__INTERNAL_PORT} --create --if-not-exists --topic ${KAFKA_PRODUCTS_TOPIC} --replication-factor 1 --partitions 1 && 
+          kafka-topics --bootstrap-server ${KAFKA_CONTAINER_NAME}:${KAFKA__INTERNAL_PORT} --create --if-not-exists --topic ${KAFKA_ORDERS_TOPIC} --replication-factor 1 --partitions 1
+        "
+        ]
+      healthcheck:
+        test: ["CMD-SHELL", "kafka-topics --bootstrap-server ${KAFKA_CONTAINER_NAME}:${KAFKA__INTERNAL_PORT} --list | grep -q ${KAFKA_ORDERS_TOPIC}"]
+        interval: 30s
+        timeout: 10s
+        retries: 5
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:latest
+    hostname: control-center
+    depends_on:
+      - kafka
+    ports:
+      - "${KAFKA_CONTROL_CENTER_PORT}:9021"
+    expose:
+      - ${KAFKA_CONTROL_CENTER_PORT}
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: "${KAFKA_CONTAINER_NAME}:${KAFKA__INTERNAL_PORT} "
+      CONTROL_CENTER_ZOOKEEPER_CONNECT: "${ZOOKEEPER_CONTAINER_NAME}:${ZOOKEEPER_PORT}"
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      PORT: ${KAFKA_CONTROL_CENTER_PORT}
+    networks:
+      - kafka
+    restart: always
+
+networks:
+  default:
+    driver: bridge
+  keycloak-and-mysql-network:
+  products:
+  orders:
+  kafka:
+    driver: bridge
+
+
+
+
+volumes:
+  mysql-keycloak:
+  keycloak-realm-data:
+  orders-db:
+  products-db:
+  products_uploads:
+  spa:

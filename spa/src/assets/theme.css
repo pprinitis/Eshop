@@ -1,0 +1,47 @@
+/* theme.css */
+
+/* Default (Light) Theme Variables */
+:root {
+    --background-color: #ffffff;
+    --border-color: #e0e0e0;
+    --text-color: #000000;
+    --spacing-small: 10px;
+    --spacing-medium: 20px;
+    --border-color-hover: #afafaf;
+    --toggle-knob-color: #4b4b4b;
+    --icon-filter: invert(0);
+    --accent-red-color: #ff0000af;
+    --accent-red-color-hover: #cc0000;
+    --disabled-background-color: #e0e0e0;
+    --disabled-text-color: #a0a0a0;
+    --font-size: 1rem;
+    /* Added missing variables */
+    --input-hover-background-color: #f9f9f9; /* Light gray for hover effect */
+    --submit-button-hover-background-color: #5a5a5a; /* Darker gray for button hover */
+}
+
+/* Dark Theme Variables */
+.dark-theme {
+    --background-color: #1e1e1e;
+    --border-color: #333333;
+    --text-color: #ffffff;
+    --border-color-hover: #555555;
+    --toggle-knob-color: #b5b5b5;
+    --icon-filter: invert(1);
+    --accent-red-color: #ff4d4d;
+    --accent-red-color-hover: #ff1a1a;
+    --disabled-background-color: #2e2e2e;
+    --disabled-text-color: #6e6e6e;
+
+    /* Added missing variables */
+    --input-hover-background-color: #2a2a2a; /* Slightly lighter than background */
+    --submit-button-hover-background-color: #aaaaaa; /* Lighter gray for button hover */
+}
+
+/* Global Styles (Optional) */
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+}

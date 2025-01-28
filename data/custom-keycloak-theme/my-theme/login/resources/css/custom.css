@@ -1,0 +1,17 @@
+/* Example: change the background color of the login and registration pages */
+body {
+    background-color: #f9f9f9;
+  }
+  
+  /* Example: customize the Keycloak form buttons */
+  .btn {
+    background-color: #4CAF50 !important; /* Make them green */
+    color: white !important;
+  }
+  
+  /* Example: tweak the form labels */
+  label {
+    font-weight: bold;
+    color: #333;
+  }
+  
